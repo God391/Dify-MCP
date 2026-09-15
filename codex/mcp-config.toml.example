@@ -1,0 +1,19 @@
+[mcp_servers.dify-workflow]
+command = "uv"
+args = ["--directory", "<仓库绝对路径>/dify-mcp", "run", "dify-workflow-mcp"]
+env_vars = [
+  "DIFY_CONSOLE_API_URL",
+  "DIFY_ADMIN_API_KEY",
+  "DIFY_WORKSPACE_ID",
+  "DIFY_CONSOLE_ACCESS_TOKEN",
+  "DIFY_CSRF_TOKEN",
+  "DIFY_CSRF_COOKIE_NAME",
+  "DIFY_TLS_VERIFY",
+  "DIFY_HTTP_TIMEOUT",
+  "DIFY_PREVIEW_TTL_SECONDS",
+  "DIFY_GENERATOR_MODEL_PROVIDER",
+  "DIFY_GENERATOR_MODEL_NAME",
+  "DIFY_GENERATOR_MODEL_MODE",
+]
+startup_timeout_sec = 60
+tool_timeout_sec = 180

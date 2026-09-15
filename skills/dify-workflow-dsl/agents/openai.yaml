@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dify Workflow DSL"
+  short_description: "Dify 工作流 DSL 与 Cloud 自定义 API 工具"
+  default_prompt: "使用 $dify-workflow-dsl 创建或分析 Dify 工作流 DSL，或配置工作流依赖的 Cloud 自定义 API 工具；修改时保留已有版本和外部契约，无版本的新建任务默认使用 0.5.0；按实际覆盖范围报告验证结果。"

@@ -1,0 +1,345 @@
+version: "0.5.0"
+kind: app
+app:
+  name: "批量反馈分析与风险分流"
+  description: "拆分多条反馈、确定性识别风险、分支合并，并在 Iteration 中逐条生成分析"
+  icon: "🧭"
+  icon_type: emoji
+  icon_background: "#E4FBCC"
+  mode: workflow
+  use_icon_as_answer_icon: false
+dependencies:
+  - current_identifier: null
+    type: marketplace
+    value:
+      marketplace_plugin_unique_identifier: langgenius/openai:0.2.6@e2665624a156f52160927bceac9e169bd7e5ae6b936ae82575e14c90af390e6e
+      version: null
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features: {}
+  graph:
+    nodes:
+      - id: feedback_start
+        type: custom
+        data:
+          type: start
+          title: "输入反馈"
+          variables:
+            - label: "每行一条客户反馈"
+              variable: feedback_text
+              type: paragraph
+              required: true
+              max_length: 20000
+            - label: "分析目标"
+              variable: analysis_goal
+              type: text-input
+              required: true
+              max_length: 500
+        position: {x: 40, y: 300}
+        positionAbsolute: {x: 40, y: 300}
+        sourcePosition: right
+        targetPosition: left
+        width: 244
+        height: 120
+
+      - id: prepare_feedback
+        type: custom
+        data:
+          type: code
+          title: "拆分并统计风险"
+          code_language: python3
+          code: |
+            def main(feedback_text: str) -> dict:
+                items = [line.strip() for line in feedback_text.splitlines() if line.strip()]
+                risk_words = ("退款", "投诉", "泄露", "故障", "宕机", "欺诈", "人身安全")
+                risk_count = sum(
+                    1 for item in items if any(word in item for word in risk_words)
+                )
+                return {"items": items, "risk_count": risk_count}
+          variables:
+            - variable: feedback_text
+              value_selector: [feedback_start, feedback_text]
+          outputs:
+            items:
+              type: array[string]
+              children: null
+            risk_count:
+              type: number
+              children: null
+        position: {x: 350, y: 300}
+        positionAbsolute: {x: 350, y: 300}
+        sourcePosition: right
+        targetPosition: left
+        width: 244
+        height: 100
+
+      - id: risk_gate
+        type: custom
+        data:
+          type: if-else
+          title: "是否存在高风险反馈"
+          cases:
+            - id: high_risk
+              case_id: high_risk
+              logical_operator: and
+              conditions:
+                - id: risk-count-positive
+                  variable_selector: [prepare_feedback, risk_count]
+                  comparison_operator: ">"
+                  value: "0"
+                  varType: number
+        position: {x: 660, y: 300}
+        positionAbsolute: {x: 660, y: 300}
+        sourcePosition: right
+        targetPosition: left
+        width: 244
+        height: 126
+
+      - id: urgent_route
+        type: custom
+        data:
+          type: template-transform
+          title: "生成升级提示"
+          variables:
+            - variable: count
+              value_selector: [prepare_feedback, risk_count]
+          template: "检测到 {{ count }} 条高风险反馈，请先人工复核，再执行任何外部通知或工单写入。"
+        position: {x: 970, y: 160}
+        positionAbsolute: {x: 970, y: 160}
+        sourcePosition: right
+        targetPosition: left
+        width: 244
+        height: 80
+
+      - id: normal_route
+        type: custom
+        data:
+          type: template-transform
+          title: "生成常规提示"
+          variables: []
+          template: "未命中静态高风险关键词，可继续批量分析；最终结论仍需结合原文复核。"
+        position: {x: 970, y: 440}
+        positionAbsolute: {x: 970, y: 440}
+        sourcePosition: right
+        targetPosition: left
+        width: 244
+        height: 80
+
+      - id: route_merge
+        type: custom
+        data:
+          type: variable-aggregator
+          title: "合并路由结果"
+          output_type: string
+          variables:
+            - [urgent_route, output]
+            - [normal_route, output]
+        position: {x: 1280, y: 300}
+        positionAbsolute: {x: 1280, y: 300}
+        sourcePosition: right
+        targetPosition: left
+        width: 244
+        height: 80
+
+      - id: feedback_batch
+        type: custom
+        data:
+          type: iteration
+          title: "逐条分析反馈"
+          iterator_selector: [prepare_feedback, items]
+          iterator_input_type: array[string]
+          output_selector: [analyze_feedback, text]
+          output_type: array[string]
+          is_parallel: true
+          parallel_nums: 5
+          error_handle_mode: terminated
+          start_node_id: feedback_batch_start
+          width: 500
+          height: 240
+        position: {x: 1590, y: 260}
+        positionAbsolute: {x: 1590, y: 260}
+        sourcePosition: right
+        targetPosition: left
+        width: 500
+        height: 240
+        zIndex: 1
+
+      - id: feedback_batch_start
+        parentId: feedback_batch
+        type: custom-iteration-start
+        draggable: false
+        selectable: false
+        data:
+          type: iteration-start
+          title: ""
+          isInIteration: true
+        position: {x: 28, y: 92}
+        positionAbsolute: {x: 1618, y: 352}
+        sourcePosition: right
+        targetPosition: left
+        width: 44
+        height: 48
+        zIndex: 1002
+
+      - id: analyze_feedback
+        parentId: feedback_batch
+        type: custom
+        data:
+          type: llm
+          title: "分析单条反馈"
+          isInIteration: true
+          isInLoop: false
+          iteration_id: feedback_batch
+          model:
+            provider: langgenius/openai/openai
+            name: gpt-4.1-mini
+            mode: chat
+            completion_params:
+              temperature: 0.2
+          prompt_template:
+            - id: feedback-system
+              role: system
+              text: "你是客户反馈分析员。只依据输入，输出：主题、情绪、风险、建议；不执行任何外部操作。"
+            - id: feedback-user
+              role: user
+              text: "分析目标：{{#feedback_start.analysis_goal#}}\n\n当前反馈：{{#feedback_batch.item#}}"
+          context:
+            enabled: false
+            variable_selector: []
+          vision:
+            enabled: false
+        position: {x: 130, y: 60}
+        positionAbsolute: {x: 1720, y: 320}
+        sourcePosition: right
+        targetPosition: left
+        width: 300
+        height: 120
+        zIndex: 1002
+
+      - id: build_report
+        type: custom
+        data:
+          type: template-transform
+          title: "汇总报告"
+          variables:
+            - variable: route
+              value_selector: [route_merge, output]
+            - variable: analyses
+              value_selector: [feedback_batch, output]
+          template: |
+            ## 风险路由
+            {{ route }}
+
+            ## 逐条分析
+            {% for item in analyses %}
+            ### 第 {{ loop.index }} 条
+            {{ item }}
+            {% endfor %}
+        position: {x: 2160, y: 300}
+        positionAbsolute: {x: 2160, y: 300}
+        sourcePosition: right
+        targetPosition: left
+        width: 280
+        height: 120
+
+      - id: feedback_end
+        type: custom
+        data:
+          type: end
+          title: "输出分析结果"
+          outputs:
+            - variable: risk_count
+              value_selector: [prepare_feedback, risk_count]
+              value_type: number
+            - variable: item_analyses
+              value_selector: [feedback_batch, output]
+              value_type: array[string]
+            - variable: report
+              value_selector: [build_report, output]
+              value_type: string
+        position: {x: 2510, y: 300}
+        positionAbsolute: {x: 2510, y: 300}
+        sourcePosition: right
+        targetPosition: left
+        width: 244
+        height: 120
+
+    edges:
+      - id: feedback_start-source-prepare_feedback-target
+        source: feedback_start
+        sourceHandle: source
+        target: prepare_feedback
+        targetHandle: target
+        type: custom
+        data: {sourceType: start, targetType: code, isInIteration: false, isInLoop: false}
+      - id: prepare_feedback-source-risk_gate-target
+        source: prepare_feedback
+        sourceHandle: source
+        target: risk_gate
+        targetHandle: target
+        type: custom
+        data: {sourceType: code, targetType: if-else, isInIteration: false, isInLoop: false}
+      - id: risk_gate-high_risk-urgent_route-target
+        source: risk_gate
+        sourceHandle: high_risk
+        target: urgent_route
+        targetHandle: target
+        type: custom
+        data: {sourceType: if-else, targetType: template-transform, isInIteration: false, isInLoop: false}
+      - id: risk_gate-false-normal_route-target
+        source: risk_gate
+        sourceHandle: "false"
+        target: normal_route
+        targetHandle: target
+        type: custom
+        data: {sourceType: if-else, targetType: template-transform, isInIteration: false, isInLoop: false}
+      - id: urgent_route-source-route_merge-target
+        source: urgent_route
+        sourceHandle: source
+        target: route_merge
+        targetHandle: target
+        type: custom
+        data: {sourceType: template-transform, targetType: variable-aggregator, isInIteration: false, isInLoop: false}
+      - id: normal_route-source-route_merge-target
+        source: normal_route
+        sourceHandle: source
+        target: route_merge
+        targetHandle: target
+        type: custom
+        data: {sourceType: template-transform, targetType: variable-aggregator, isInIteration: false, isInLoop: false}
+      - id: route_merge-source-feedback_batch-target
+        source: route_merge
+        sourceHandle: source
+        target: feedback_batch
+        targetHandle: target
+        type: custom
+        data: {sourceType: variable-aggregator, targetType: iteration, isInIteration: false, isInLoop: false}
+      - id: feedback_batch_start-source-analyze_feedback-target
+        source: feedback_batch_start
+        sourceHandle: source
+        target: analyze_feedback
+        targetHandle: target
+        type: custom
+        zIndex: 1002
+        data:
+          sourceType: iteration-start
+          targetType: llm
+          isInIteration: true
+          isInLoop: false
+          iteration_id: feedback_batch
+      - id: feedback_batch-source-build_report-target
+        source: feedback_batch
+        sourceHandle: source
+        target: build_report
+        targetHandle: target
+        type: custom
+        data: {sourceType: iteration, targetType: template-transform, isInIteration: false, isInLoop: false}
+      - id: build_report-source-feedback_end-target
+        source: build_report
+        sourceHandle: source
+        target: feedback_end
+        targetHandle: target
+        type: custom
+        data: {sourceType: template-transform, targetType: end, isInIteration: false, isInLoop: false}
+    viewport: {x: 0, y: 0, zoom: 0.58}
